@@ -13,7 +13,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt update
-          sudo apt install -y nasm gcc-multilib grub-pc-bin xorriso
+          sudo apt install -y nasm gcc-multilib grub-pc-bin xorriso mtools
       - name: Assemble bootloader
         run: nasm -f elf32 boot.s -o boot.o
       - name: Compile kernel
