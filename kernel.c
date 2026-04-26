@@ -1,6 +1,7 @@
-#include <stdint.h>
-#include <stddef.h>
-#include <string.h>
+// kernel.c - TFD OS kernel (no standard headers)
+typedef unsigned int   uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char  uint8_t;
 
 // VGA colors
 #define VGA_COLOR_BLACK        0
@@ -19,31 +20,43 @@
 #define VGA_COLOR_LIGHT_MAGENTA 13
 #define VGA_COLOR_LIGHT_BROWN  14
 #define VGA_COLOR_WHITE        15
-#define VGA_COLOR_YELLOW       14   // actually light brown is yellow-like; use 14
+#define VGA_COLOR_YELLOW       14
 
-// VGA buffer
 uint16_t* vga_buffer = (uint16_t*)0xB8000;
 int cursor_x = 0;
 int cursor_y = 0;
 uint8_t vga_color = VGA_COLOR_LIGHT_GREY | (VGA_COLOR_BLACK << 4);
 
-// Linux distro struct – now using pointer for URL (no fixed size limit)
-typedef struct {
-    char name[30];
-    const char* url;
-    char size[10];
-} LinuxDistro;
+// ----- custom string functions -----
+int my_strlen(const char* s) {
+    int len = 0;
+    while (s[len]) len++;
+    return len;
+}
 
-LinuxDistro distros[] = {
-    {"Ubuntu 24.04", "http://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso", "5.2GB"},
-    {"Linux Mint 21.3", "http://mirrors.kernel.org/linuxmint/stable/21.3/linuxmint-21.3-cinnamon-64bit.iso", "2.7GB"},
-    {"Debian 12", "http://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.5.0-amd64-netinst.iso", "3.6GB"},
-    {"Fedora 40", "http://download.fedoraproject.org/pub/fedora/linux/releases/40/Workstation/x86_64/iso/Fedora-Workstation-Live-x86_64-40-1.14.iso", "2.5GB"},
-    {"Arch Linux", "http://archlinux.mirrors.linux-packages.com/iso/2024.04.01/archlinux-2024.04.01-x86_64.iso", "800MB"}
-};
-int num_distros = 5;
+int my_strcmp(const char* a, const char* b) {
+    while (*a && *b && *a == *b) { a++; b++; }
+    return *a - *b;
+}
 
-int network_connected = 0;
+int my_strncmp(const char* a, const char* b, int n) {
+    for (int i = 0; i < n; i++) {
+        if (a[i] != b[i]) return a[i] - b[i];
+        if (a[i] == 0) break;
+    }
+    return 0;
+}
+
+char* my_strstr(const char* haystack, const char* needle) {
+    for (; *haystack; haystack++) {
+        const char* h = haystack;
+        const char* n = needle;
+        while (*n && *h == *n) { h++; n++; }
+        if (*n == 0) return (char*)haystack;
+    }
+    return 0;
+}
+// ----- end custom string functions -----
 
 void vga_setcolor(uint8_t color) {
     vga_color = color;
@@ -64,12 +77,14 @@ void vga_putchar(char c) {
         vga_buffer[cursor_y * 80 + cursor_x] = (uint16_t)c | (vga_color << 8);
         cursor_x++;
     }
+
     if (cursor_x >= 80) {
         cursor_x = 0;
         cursor_y++;
     }
+
     if (cursor_y >= 25) {
-        // Scroll
+        // scroll
         for (int i = 0; i < 24 * 80; i++)
             vga_buffer[i] = vga_buffer[i + 80];
         for (int i = 24 * 80; i < 25 * 80; i++)
@@ -110,8 +125,7 @@ void vga_print_dec(int num) {
 void clear_screen() {
     for (int i = 0; i < 25 * 80; i++)
         vga_buffer[i] = ' ' | (vga_color << 8);
-    cursor_x = 0;
-    cursor_y = 0;
+    cursor_x = cursor_y = 0;
 }
 
 void draw_border() {
@@ -132,7 +146,7 @@ void draw_title() {
     vga_print("        ██║   ██║     ██████╔╝    ██████╔╝███████║    \n");
     vga_print("        ╚═╝   ╚═╝     ╚═════╝     ╚═════╝ ╚══════╝    \n");
     vga_setcolor(VGA_COLOR_YELLOW);
-    vga_print("      LINUX INSTALLER & BOOT MANAGER by sadman        \n");
+    vga_print("         LINUX INSTALLER & BOOT MANAGER by sadman     \n");
     draw_border();
     vga_putchar('\n');
 }
@@ -147,6 +161,22 @@ void show_help() {
     vga_print("  clear             - Clear screen\n");
     vga_print("  reboot            - Reboot system\n");
 }
+
+typedef struct {
+    char name[30];
+    const char* url;
+    char size[10];
+} LinuxDistro;
+
+LinuxDistro distros[] = {
+    {"Ubuntu 24.04", "http://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso", "5.2GB"},
+    {"Linux Mint 21.3", "http://mirrors.kernel.org/linuxmint/stable/21.3/linuxmint-21.3-cinnamon-64bit.iso", "2.7GB"},
+    {"Debian 12", "http://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.5.0-amd64-netinst.iso", "3.6GB"},
+    {"Fedora 40", "http://download.fedoraproject.org/pub/fedora/linux/releases/40/Workstation/x86_64/iso/Fedora-Workstation-Live-x86_64-40-1.14.iso", "2.5GB"},
+    {"Arch Linux", "http://archlinux.mirrors.linux-packages.com/iso/2024.04.01/archlinux-2024.04.01-x86_64.iso", "800MB"}
+};
+int num_distros = 5;
+int network_connected = 0;
 
 void list_distros() {
     vga_print_color("\nAvailable Linux Distributions:\n", VGA_COLOR_CYAN);
@@ -167,7 +197,6 @@ void wifi_connect() {
     vga_print("Available networks:\n");
     vga_print("  1. TFD-Net\n  2. Public WiFi\n  3. Home Network\n\n");
     vga_print("Select network (1-3): ");
-    // Simulate input for demo
     vga_print("1\n");
     vga_print("Enter password: ");
     vga_print("********\n");
@@ -179,7 +208,7 @@ void wifi_connect() {
 void download_iso(char* name) {
     int found = -1;
     for (int i = 0; i < num_distros; i++) {
-        if (strstr(distros[i].name, name) != NULL) {
+        if (my_strstr(distros[i].name, name) != 0) {
             found = i;
             break;
         }
@@ -224,40 +253,30 @@ void system_status() {
 }
 
 void read_line(char* buffer, int max_len) {
-    int pos = 0;
-    // Simple simulation: read until newline (in real OS you'd read keyboard)
-    // For demo, we'll just accept empty input or a predefined string.
-    // But to make it compile, we'll stub it.
-    // In reality you'd implement keyboard handling. For now:
+    // Stub: for a minimal kernel that compiles, just put a fixed string.
+    // In a real OS you would implement keyboard input.
     buffer[0] = '\0';
 }
 
 void execute_command(char* cmd) {
-    if (strcmp(cmd, "help") == 0) show_help();
-    else if (strcmp(cmd, "list") == 0) list_distros();
-    else if (strcmp(cmd, "wifi") == 0) wifi_connect();
-    else if (strcmp(cmd, "status") == 0) system_status();
-    else if (strcmp(cmd, "clear") == 0) draw_title();
-    else if (strcmp(cmd, "reboot") == 0) asm volatile("int $0x19");
-    else if (strncmp(cmd, "install ", 8) == 0) download_iso(cmd+8);
+    if (my_strcmp(cmd, "help") == 0) show_help();
+    else if (my_strcmp(cmd, "list") == 0) list_distros();
+    else if (my_strcmp(cmd, "wifi") == 0) wifi_connect();
+    else if (my_strcmp(cmd, "status") == 0) system_status();
+    else if (my_strcmp(cmd, "clear") == 0) draw_title();
+    else if (my_strcmp(cmd, "reboot") == 0) asm volatile("int $0x19");
+    else if (my_strncmp(cmd, "install ", 8) == 0) download_iso(cmd+8);
     else if (cmd[0] != '\0') vga_print_color("Command not found. Type 'help'\n", VGA_COLOR_RED);
 }
 
 void kernel_main() {
-    char input[100];
     draw_title();
+    vga_print("Welcome to TFD OS! This kernel is booting.\n");
+    vga_print("Type 'help' for commands.\n");
+    vga_print("tfd> ");
+    // For now, just halt after displaying the prompt.
+    // You can later implement a real command loop.
     while (1) {
-        vga_setcolor(VGA_COLOR_GREEN);
-        vga_print("tfd> ");
-        vga_setcolor(VGA_COLOR_WHITE);
-        read_line(input, sizeof(input));
-        // For demo, we'll simulate a few commands to show it's working.
-        // Actually you'd read real input. To avoid empty loop, just list distros.
-        // You can replace this with a real prompt later.
-        // Let's just halt and show a message for now.
-        vga_print("Welcome to TFD OS! Type 'list' to see distros.\n");
-        vga_print("tfd> ");
-        // For the purpose of the build, we'll break out after a few cycles.
-        break;
+        asm volatile("hlt");
     }
 }
